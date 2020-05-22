@@ -1,0 +1,772 @@
+---
+title: "GROUP 1 PREDICTION PROJECT ECON386 SP20"
+author: "Almudena Badiola, Pablo Gabilondo, Andrea del Saz, Daniel Campbell, Benjamin Sterbach and Eleena Abdul"
+date: "5/22/2020"
+output:  
+  html_document: default
+  pdf_document: default
+---
+# Part 1: Executive summary
+
+    The following cross-sectional data set was previously collected within Kaggle by Nuno Antonio, Ana Almeida, and Luis Nunes. Of their over 200,000 observations on hotel booking demand around the world from 2015 to 2017, we imported 117,000 of these observations from Excel for our data set to explore the effects on the average daily rate of hotel stays by the following variables of interest: hotel (resort hotel or city hotel), lead time (number of days elapsed between the reservation date and the arrival date), weekend night stays (number of weekend nights a client stays at the hotel), number of adults (number of adults included in the reservation), number of children (number of children included in the reservation), meal type (SC: Undefined/No meal package, BB: bed and breakfast includes only breakfast, HB: half board includes breakfast and one other meal, FB: full board includes three meals per day), distribution channel (the booking distribution channel which is either travel agent, corporate or direct), repeated guest (value indicating if the booking name was from a repeated guest), room type (code of room reserved), booking changes (number of changes made to the booking), days in waiting list (number of days the booking was in the waiting list before being confirmed to the client), parking spaces requested (number of parking spaces required by the customer), special requests (number of special requests made by the customer), and adr (price per night of stay in dollars). 
+    These variables will be used to see if they have a statistically significant effect on the sales price and the degree to which these variables affect average daily rate to build a regression and classification model that can accurately predict the average daily rate of a specific hotel based on the given variables of interest. 
+  
+# Part 2: Processing and Cleaning the Data
+
+    In the preprocessing and cleaning the data, the major cleaning was to modify the string binomial variables to numerical, since it is a dummy variable, we changed the Yes & No to 1 & 0 in the variable Repeated_Guest. On the other hand, we had several variables that are categorical and some have more than three viable options, so we transformed these variables to a factor in order for us to see the effect each individual observation has on the average daily price.
+    We imported our dataset from an Excel file and called it (data), which has a dimension of 117,394 rows (observations) and 15 columns (variables). Below you will notice we had to install numerous packages for use in exploring the data, setting up our predictive models, classifying the data with models such as CART or logistic regression and creating confusion matrixes. These additional packages include caret, ggplot2, kernlab, randomforest, E1071, rrpack, and lattice. When plotting, we noticed there are no visible outliers. However, even if there had been, keeping these outliers will provide us better insight into future modeling, so it is better to keep them. Finally, we set the seed to 123 to ensure that we are partitioning the data into random and consistent sets (training, testing and validation). We will not be taking any additional cleaning steps. 
+
+```{r}
+##additional cleaning and sorting packages
+library(caret)
+library(kernlab)
+library(rattle)
+library(randomForest)
+library(e1071)
+library(rpart)
+library(ggplot2)
+library(rrpack)
+library(lattice)
+```
+
+```{r}
+library(readxl)
+Hotel_Bookings_Dataset_for_R <- read_excel("~/Documents/USD/Year 1/Spring/ECON386/Hotel Bookings_Dataset for R.xlsx")
+data<-Hotel_Bookings_Dataset_for_R
+str(data)
+summary(data)
+dim(data)
+```
+
+When looking at the data, we noticed two important things: First, the variables Meal, Hotel, Distribution Channel and Room are categorical and we need to change them to factor variables but, before that, for the variables Meal and Distribution Channel, we did also notice that some observations as "Undefined". Because these observations will probably contaminate our model and don´t help with the predictions, we are going to set them as NA and eliminate all rows that contain NA. We can do that because we have a large dataset and the deletion of some observations will not significantly change it.
+
+```{r}
+data$Meal[data$Meal=="Undefined"]<-NA
+data$Distribution_Channel[data$Distribution_Channel=="Undefined"]<-NA
+data<-na.omit(data)
+data$Hotel<-as.factor(data$Hotel)
+data$Meal<-as.factor(data$Meal)
+data$Distribution_Channel<-as.factor(data$Distribution_Channel)
+data$Room<-as.factor(data$Room)
+dim(data)
+str(data)
+```
+
+Now that we finally have a cleaned dataset with only numerical and factor variables, we are going to split the data into three datasets in order to avoid overfitting and optimize the training dataset accuracy. 
+
+```{r}
+#data partitioning
+str(data)
+set.seed(123)
+split <- sample(seq(1, 3), size = nrow(data), replace = TRUE, prob = c(.7, .15, .15))
+training <- data[split == 1,]
+val <- data[split == 2,]
+testing <- data[split == 3,]
+```
+
+```{r}
+dim(training)
+dim(testing)
+dim(val)
+```
+We run the function dim to see how many observations we have in our different datasets. 
+
+## PLOTS
+In this section, we run multiple plots to understand the relationship between the dependent and independent variables:
+
+```{r, echo=FALSE}
+##Average Daily Price by Lead Time
+qplot(data$Lead_Time,data$Average_Daily_price,geom = c("point","smooth"))
+```
+
+It seems by looking at the plot that the sooner a client books a hotel room, the lower the average daily price is. If you book a reservation on short notice, price will be higher. 
+
+```{r, echo=FALSE}
+##Average Daily Price by Weekend Nights
+qplot(data$Weekend_Nights,data$Average_Daily_price,geom = c("point","smooth"))
+```
+
+This plot describes the relationship between the average daily price and the number of weekend nights a client stays in a hotel. We can see that the first nights are more expensive and then the price decreases, which makes sense since there could be a discount for a greater number of nights. Also, we can see that weekend nights are somehow more expensive than week nights.
+
+```{r, echo=FALSE}
+##Average Daily Price by Week Nights
+qplot(data$Week_Night_Stays,data$Average_Daily_price,geom = c("point","smooth"))
+```
+
+This plot describes the relationship between the average daily price and the number of week-nights a client stays in a hotel. We can see that the first nights are more expensive and then as the number of nights reached about 10, the price significantly decreases, which makes sense since most hotels offer discounts for a greater number of nights. 
+
+```{r, echo=FALSE}
+##Average Daily Price by Number of Children
+qplot(data$Children,data$Average_Daily_price,geom = c("point","smooth"))
+```
+The more children in a booking, the average daily price slighly decreases as of children #2.
+
+```{r, echo=FALSE}
+##Average Daily Price by Number of Adults
+qplot(data$Adults,data$Average_Daily_price,geom = c("point","smooth"))
+```
+
+We can see that the number of adults ranges from 0-4 (a reservation can include only children/up to 4 adults per booking) and average daily price is at its maximum when the number of adults is 2 and 3, and then decreases at the fourth adult.
+
+```{r, echo=FALSE}
+##Average Daily Price by Meal Type
+qplot(data$Meal,data$Average_Daily_price,geom = c("point","smooth"))
+```
+
+This plot shows the relationship between meal type and average daily price. We can see that the most expensive package is the half-board (which includes breakfast and one other meal). Full board is the cheapest package, which could make sense again since hotels offer discounts for full packages.
+
+```{r, echo=FALSE}
+##Average Daily Price by Distribution Channel
+qplot(data$Distribution_Channel,data$Average_Daily_price,geom = c("point","smooth"))
+```
+
+```{r, echo=FALSE}
+##Average Daily Price by Repeated Guest
+qplot(data$Repeated_Guest,data$Average_Daily_price,geom = c("point","smooth"))
+```
+
+We can clearly see in this plot that describes the relationship between repeated guest and average daily price, that if a guest is a repeated guest (1), the price is relatively lower than if this guest is a new guest (0).
+
+```{r, echo=FALSE}
+##Average Daily Price by Room Type
+qplot(data$Room,data$Average_Daily_price,geom = c("point","smooth"))
+```
+
+```{r, echo=FALSE}
+##Average Daily Price by Booking Changes
+qplot(data$Booking_Changes,data$Average_Daily_price,geom = c("point","smooth"))
+```
+
+This plot describes the relationship between the number of booking changes made to a reservation and how this affects average daily price. We can clearly observe that the first booking changes made are have a very significant effect on the daily price. However, the more the bookings changes are made, the "cheaper" they become.
+
+```{r, echo=FALSE}
+##Average Daily Price by Days in Waiting List
+qplot(data$Days_Waiting_List,data$Average_Daily_price,geom = c("point","smooth"))
+```
+
+This plot describes the relationship between average daily price and the number of days a clients stays in the waiting list. Essentialy, we could say that the more days a client stays in the waiting list, the lower the average daily price is. A remarkable observation is if the days in waiting list is 0, the price is significantly higher.
+
+```{r, echo=FALSE}
+##Average Daily Price by Parking Spaces
+qplot(data$Parking_Spaces,data$Average_Daily_price,geom = c("point","smooth"))
+```
+
+```{r, echo=FALSE}
+##Average Daily Price by Special Requests
+qplot(data$Special_req,data$Average_Daily_price,geom = c("point","smooth"))
+```
+
+# Part 3: Regression Modeling
+
+## Almudena´s linear regression models
+
+  Firstly, we will start from the training data creating a complex model that includes all variables in order to test the variables significance and preview some overall data that will help me decide what variables to select. Then I will continue by reducing the number of variables, adding interaction terms as well as non-linear transformations.
+
+```{r}
+M1<-lm(Average_Daily_price~Hotel+Lead_Time+Weekend_Nights+Week_Night_Stays+Adults+Children+Meal+Distribution_Channel+Repeated_Guest+Room+Booking_Changes+Days_Waiting_List+Parking_Spaces+Special_req,training)
+summary(M1)
+```
+
+When running the linear regression to compare the effects of the 13 features, I can see that almost all of the variables are statistically significant, except Room I, which is significant only at the 5% level and Room L and RoomK, which are not statistically significant. The model is jointly significant. However, it only explains 33% variation in Average_Daily_Rate controlling these 14 variables. Next, I am going to force the intercept through the origin to see if that improves the model. 
+
+```{r}
+M2<-lm(Average_Daily_price~0+Hotel+Lead_Time+Week_Night_Stays+Weekend_Nights+Adults+Children+Meal+Distribution_Channel+Repeated_Guest+Booking_Changes+Days_Waiting_List+Parking_Spaces+Special_req,training)
+summary(M2)
+```
+
+By creating M2, we forced the model through the origin. This will introduce some bias into the model but I think it is acceptable because after all, if we have zero Weekend_Nights and zero Week_Night_Stays (essentially no reservations) , the average daily rate will equal zero. A huge improvement can be seen with the model as it now explains 88% of the variation in the Average_Daily_Rate. All variables have remained highly significant. Next, we will look at nonlinear transformations using logarithmic transformations. 
+
+```{r}
+M3<-lm(log(Average_Daily_price)~0+Hotel+Lead_Time+Week_Night_Stays+Weekend_Nights+Adults+Children+Meal+Distribution_Channel+Repeated_Guest+Booking_Changes+Days_Waiting_List+Parking_Spaces+Special_req,training)
+summary(M3)
+```
+
+With M3 we looked to improve on model M2 by taking the log of the output to see how that would change the significance of our variables and fit of the overall model. By using a log-level equation we are looking at how a one unit increase of the input variable changes the output in terms of a percentage change. We noticed that the variable Weekend_Nights is only significant to a 5% level, and that Booking_Changes is no longer significant. We noticed that all variables are still statistically significant well above the .1% level. Another huge improvement can be seen with the model as it now explains 99.3% variation in Sale Price when controlling these 12 features as compared to 88% in model M2. We could keep exploring and use a log-log equation but adding logarithmic transformations only makes sense when there is a great variation range in the variables, which is not the case. Next, we explore polynomial regressions to see how that affects the model. Of course, only on numerical variables. Also, I will eliminate the insignificant variables from my model. 
+
+```{r}
+M4<-lm(log(Average_Daily_price)~0+Hotel+I(Lead_Time)+I(Lead_Time^2)+I(Week_Night_Stays)+I(Week_Night_Stays^2)+I(Adults)+I(Adults^2)+I(Children)+I(Children^2)+Meal+Distribution_Channel+I(Repeated_Guest)+I(Repeated_Guest^2)+I(Days_Waiting_List)+I(Days_Waiting_List^2)+I(Parking_Spaces)+I(Parking_Spaces^2)+I(Special_req)+I(Special_req^2),training)
+summary(M4)
+```
+
+In M4 we switched to a polynomial regression of the order 2 to see what effect this would have on the model. This approach seems to be taking a step backwards from M3 because, although the R-squared remains the same, Lead_Time, Repeated Guest, and Days_in_Waiting_List become statistically insignificant. Also, the only variable that would make sense to include this change would be Lead Time, since it has a lot of variability, but it has proven to become insignificant. Furthermore, it does not make much sense to include nonlinear transformations since this is only interesting when we see that an independent variable has positive effects in one range and negative effects in another. I feel like I could be overfitting the data, so for my final model I am going to go back to the previous model and cut down on some variables.
+
+```{r}
+M5<-lm(log(Average_Daily_price)~0+Hotel+Lead_Time+Week_Night_Stays+Adults+Meal+Distribution_Channel+Days_Waiting_List,training)
+summary(M5)
+```
+
+I felt like the model was starting to become extremely complicated so in order to not overfit the data I decided to cut down on the number of variables included in the model, only include logarithmic expressions in the dependent variable, and not including nonlinear transformations. By looking at some plots of the explaining variables and the dependent variable I decided to use hotel type, lead time, number of week night stays, number of adults in the reservation, meal type, distribution channel and number of days in waiting list as independent variables in the regression model to find out the sale price. All variables are individually significant, as well as the model as a whole, which with a p-value of 2.2e-16 is jointly significant. The residual standard error is 0.4149 and the adjusted R-squared 0.9917, which means this model is able to explain 99.17% of the variation in the average daily price of hotels of the observations in the Training Data set which I consider extremely good. Since we are using the model for predictive purposes, an elevated adjusted R-squared is essential. Finally, by limiting the input variables to 7, the model looks to utilize regularization by restraining the model’s complexity to avoid overfitting the model which could lead to a better in-sample error but worse out of sample error.
+
+## Pablo´s linear regression models
+
+  The following steps will be used to check the significance of the variable coefficients with regards to the output of Average Daily Price and the overall fit of the model. To do this, I will run linear regression models, nonlinear transformations and polynomial regressions. I will use the training set to create a predictive model. Starting from a really basic model with just one variable I will then add more variables as well an nonlinear transformations. Looking at the plots I decided to start with Nº of adults because I thought that it was the most basic variable for a model determining the Average Daily Price.
+
+```{r}
+P0<-lm(Average_Daily_price~Adults,training)
+summary(P0)
+```
+
+We can see that, although both the intercept term and the variable “Adults” are statistically significant, the model is not very good, with an R-squared of only 0.07965, and the value of the intercept is pretty high (for an average daily price of an hotel Booking). Let´s plot the predictions of this model in comparison to the variable Adults.
+
+```{r}
+Pred_P0<-predict(P0,val)
+plot(Pred_P0~Adults,val)
+```
+
+We are going to measure the In-Sample Error(Ein) and the Out-of-Sample Error (Eout) for the model to see how big the Eout is.
+
+```{r}
+E_IN_P0<-(sum(P0$residuals^2)/(length(P0$residuals)-2))^(1/2)
+E_OUT_P0<-(sum(Pred_P0-val$Average_Daily_price)^2/(length(val$Average_Daily_price)-2))^(1/2)
+E_IN_P0
+E_OUT_P0
+```
+
+Both the in-sample and out-of-sample error are very similar. For the next model, I am going to introduce a dummy variable that seems to be relevant for the model: Hotel. This variable takes value 1 for “City Hotel” and 2 for “Resort Hotel”
+
+```{r}
+P1<-lm(Average_Daily_price~Adults+Hotel,training)
+summary(P1)
+```
+
+With this new model P1, we can see that Variable Hotel is also very significant but our model keeps having an R-squared of 0.08979 which is extremely low and is not a good fit for my final model. Let´s also calculate the Ein and Eout for this model and see if there is a big difference with the first one.
+Now we are going to check if by adding more variables to our model, the predictions change and we are going to check this with another plot.
+
+```{r}
+Pred_P1<-predict(P1,val)
+plot(Pred_P1~Adults,val)
+```
+```{r}
+E_IN_P1<-(sum(P1$residuals^2)/(length(P1$residuals)-3))^(1/2)
+E_OUT_P1<-(sum(Pred_P1-val$Average_Daily_price)^2/(length(val$Average_Daily_price)-3))^(1/2)
+E_IN_P1
+E_OUT_P1
+```
+
+There does not seem to be a big difference between the previous model and this one regarding the in and out of sample error. The out of sample error has increased a little bit, which is logical when introducing new variables. For my next model I have considered introducing three new elements: A new variable “Meal", which is a factor variable that seems to be important for predicting the Average Daily Price, Lead Time, which looking at the plots seems to have a considerable effect on the price and, running a log in the booking price. 
+
+```{r}
+P2<-lm(log(Average_Daily_price)~Adults+Hotel+Meal+Lead_Time,training)
+summary(P2)
+```
+
+My assumptions were right: the variables Meal and Lead Time are statistically significant and the daily average price is better explained when partial effects imply that an absolute change in the independent variable show a percentage change in the dependent variable. I have come to this conclusion because the R-squared has increased to 0.1754 which is still not high enough, it only explains 17.54 % of the data.  Let´s have a look at the in and out of sample error to see if the have change in comparison with the previous model.
+
+```{r}
+Pred_P2<-predict(P2,val)
+plot(Pred_P2~Adults,val)
+```
+
+I have again plot the the predictions based on the variable Adults and we can see that, as we increase the complexity of the model, our predictions plot starts becoming more complex too.
+
+```{r}
+E_IN_P2<-(sum(P2$residuals^2)/(length(P2$residuals)-5))^(1/2)
+E_OUT_P2<-(sum(Pred_P2-val$Average_Daily_price)^2/(length(val$Average_Daily_price)-4))^(1/2)
+E_IN_P2
+E_OUT_P2
+```
+
+We can see that there has been a great decrease in the in-sample error while the out-of-sample error has gone up to 13,046. This affects negatively our model but I consider that introducing a log in the dependent variable will help our model fit better the data. I think that forcing the intercept through the origin would improve the next model P3.
+
+```{r}
+P3<-lm(log(Average_Daily_price)~0+Adults+Hotel+Meal+Lead_Time,training)
+summary(P3)
+```
+
+Forcing the intercept through the origin will introduce some bias into the model but I think it is acceptable because it creates a model that says if we have 0 adults and no Hotel (essentially no booking). Our average daily price will equal zero, I believe this to be a far more accurate model when predicting the booking price. A huge improvement can be seen in our Model as it now explains 99.15% variation in the Average Daily Price and the variables are still significant at its maximum level. Let´s calculate the Ein and Eout of the model to check if it is acceptable to force the intercept through the origin.
+
+```{r}
+Pred_P3<-predict(P3,val)
+plot(Pred_P3~Adults,val)
+E_IN_P3<-(sum(P3$residuals^2)/(length(P3$residuals)-5))^(1/2)
+E_OUT_P3<-(sum(Pred_P3-val$Average_Daily_price)^2/(length(val$Average_Daily_price)-5))^(1/2)
+E_IN_P3
+E_OUT_P3
+```
+
+Our predictions seem to be more accurate as we can check in the plot and we can also see that there is almost no difference between the out-of-sample error when forcing the intercept term through the origin, so we can consider that it is acceptable.
+Now we are going to take a closer look at the residuals by, first, plotting them with a line on the origin and, also, create a residuals histogram to see if they follow a normal distribution. 
+
+```{r}
+plot(P3$residuals)
+hist(P3$residuals, prob = TRUE)
+curve(dnorm(x, mean = mean(P3$residuals), sd = sd(P3$residuals)), col = "darkblue", lwd = 2, add=TRUE)
+summary(P3$residuals)
+```
+
+The residuals histogram shows us that, more or less, they do follow a normal distribution, shich confirms that the model is good enough. Out of the 4 models I examined, I found M3 to be the best for predicting the average daily rate. This model uses a log-level regression, which means that an absolute change in the independent variable will show a percent change in the dependent (Average Daily Price) variable. I feel that the model is not extremely complicated and is able to explain 99% of the variation in the booking price.
+
+## Andrea´s linear regression models
+## Pre-Building Analysis
+  After cleaning the input data, it is time to build up my model. Before  building it, I decided to take a look at how the variables are distrubited, and what types of relations they have between each other. In order to do that, I will first calculate the matrix of variancecovariance, which will allow me to capture the same sign of relation between the variables avoiding the distrurbation that variance and covariance units may cause.
+
+```{r}
+cor(data[,11:14])
+```
+^^^
+As we can see, none of these variables are strongly correlated to each other. By analyzing the relationship between some variables, we can see that the majority are directly correlated. Still, for instance, “Days on Waiting List” and “Booking Changes” have an inverse relationship, which can be interpreted in terms that if a customer is waiting fewer days, he may do fewer changes that a customer because he has less time than for instance a client that is waiting for so long. 
+
+```{r}
+cor(data[,2:6])
+```
+^^^
+In this correlation matrix, I´ve also done an analysis with other numerical variables such as “Lead Time,” “Weekend Nights,” “Week Nights,” and “Number of adults and children,” and the results showed that none of these variables are strongly correlated.  
+
+```{r}
+hist(data$Average_Daily_price,prob = TRUE)
+```
+
+The next step is taking a look at the visuals. As we can see in the plot, the Average Daily Price distribution has asymmetry to the right, and since the difference between the minimum and maximum value so wide, I decided to add nonlinear transformations to this variable. By using a log regression in the output variable, we are examining how one unit change in the input variables leads to a percentage change on the output variable instead of a per-unit change.
+
+```{r}
+hist(data$Lead_Time,probability = TRUE)
+```
+
+I´ve also taken a look at the histogram of Lead Time since I am thinking about including nonlinear transformations to this variable since the difference between the minimum and the maximum value is so wide. The results showed something similar to what happened with Average Daily Price, so I may consider taking a log in this variable as well. By using percentage changes instead of per unit changes, it would weight changes equally, and I can overcome possible bias.
+
+## Building the model
+  Considering the conclusions for the pre-building phase, I will now follow the steps to check the significance of the variable coefficients with regards to the Average Daily Price and the overall fit of the model. From now on, I would use “Training” data to create a predictive model. I start building my model step by step and try to explain as much as the variability of Average Daily Price as I can. I would first start with a basic model, just two variables “Number of Children” and “Number of Adults.” I chose to start with these two because if the Number of Adults is 0 and the Number of Children is 0 as well, the Average Daily Price should be 0 since there are no customers to book the room.
+
+```{r}
+A0<-lm(Average_Daily_price~Adults+Children, training)
+summary(A0)
+```
+^^^
+The *** in the P-value tells us that the results are significant between 0 and 1%, so Number of Adults and Number of Children contributes to explaining the variation in the Average Daily Price. However, if we take a look at the R-squared we can explain a 19.63% of the variability in Average Aaily Price by introducing these two variables. In order to build my second model, I´m going to introduce some other variables that I also consider to be relevant such as Lead Time, Special Requests and Weekend Nights              
+
+```{r}
+A1<-lm(Average_Daily_price~Adults+Children+Lead_Time+Special_req+Weekend_Nights,training)
+summary(A1)
+```
+^^^
+My assumptions were right: the variables Lead Time, Special Requests, and Weekend Nights are statistically significant, and the Average Daily Price is better explained when we include these variables. The R-squared has increased but not so much since it is only able to predict a 22.16% of the variability in Average Daily Price. For my next model, it is time to introduce the nonlinear transformations that I´ve talked about on the pre-model building. First, I´m going to introduce a log in Average Daily Price, and I will introduce Lead Time as a log variable.  
+
+```{r}
+A2<-lm(log(Average_Daily_price)~Adults+Children+Lead_Time+Special_req+Weekend_Nights,training)
+summary(A2)
+```
+^^^
+By taking a look at the statistics, it seems that I went a step forward since the R-squared has decreased to 16.75%. Besides, when I tried to introduce a log to the Lead Time variable, I got an error message from R. This was because the logarithm of 0 does not exist, and since in the Lead_Time there are many observations that are equal to zero, R gives me error. Therefore, introducing nonlinear transformations to Lead_Time is not a viable option. In this model, I have also observed that the intercept value is very high, so in order to build my next model, I´ve decided to force the model through the origin. Even though this might introduce some bias, I believe that the new model would be far more accurate when predicting Average Daily Price.
+
+```{r}
+A3<-lm(log(Average_Daily_price)~0+Adults+Children+Lead_Time+Special_req+Weekend_Nights,training)
+summary(A3)
+```
+^^^
+By forcing the regression line to pass through the origin, the model now explains 94.4% of the variability of the Average Daily Price, up from 19.63% in my first model. The model is better by making this change. Therefore, I will keep as my final model, because it is simple and it will not overfit the data, but at the same time can explain almost a 94.43% of the variation of the Average Daily Price, which I consider to be good enough.
+
+## Elena´s linear regression models
+  From now I will use “training” in order to create a predictive model. Starting from a really basic model with only four variables I will then add more variables and maybe some interaction terms as well as non-linear transformations. Looking at the plots I decided to include lead time, number of week night stays, booking changes and number of children, because I thought that they were basic variables for a model determining booking prices. 
+
+```{r}
+E1<-lm(Average_Daily_price~Lead_Time+Week_Night_Stays+Booking_Changes+Children, training)
+summary(E1)
+```
+
+We see that the model is not that good, with only an R squared of 0.1327 and the value of the intercept is extremely high. All variables are individually significant. In the next model, I am going to run a log in average daily price to explain the effect of the independent variables in percentage. 
+
+```{r}
+E2<-lm(log(Average_Daily_price)~Lead_Time+Week_Night_Stays+Booking_Changes+Children, training)
+summary(E2)
+```
+
+This model is much worse than the previous one. The R-squared has decreased to 0.0767, meaning that the model explains only about 8% of the variability in average daily price, which is extremely low. I can also see that the variable Booking_Changes is no longer significant at all. I am going to add two more variables and remove booking changes, to see if this increases my R-squared. 
+
+```{r}
+E3<-lm(log(Average_Daily_price)~Lead_Time+Week_Night_Stays+Meal+Children+Adults, training)
+summary(E3)
+```
+
+The r-squared has increased to 0.1719 which implies 17.19 % of the variation in the dependent variable is explained by the independent variables of the regression. We have obtained better results, however, R-squared is still very low, and the number of week nights stays is only significant at the 5% level. Therefore, I am going to replace this variable by Weekend_Nights. Also, maybe by making the regression pass through the origin we obtain better results. After all, if there are no childrens and no adults, there is no reservation. 
+
+```{r}
+E4<-lm(log(Average_Daily_price)~0+Lead_Time+Weekend_Nights+Meal+Children+Adults, training)
+summary(E4)
+```
+
+This will be my final model, since the adjusted R-squared is 0.9915, which means our model explains 99.15% of the variability in the average daily price. All variables have resulted to be significant because their p-values are less than 0.05. Also, the model is statistically significant as a whole. By forcing the model to pass through the intercept, the model now has a much better ability to predict the average daily price in hotel bookings. 
+
+## Daniel´s linear regression models
+  Firstly, I have decided to add some cleaning steps for my regression model since I want to add variable rows in order to partition between the different dummy variables for categorical variables.
+
+```{r}
+data2<-data
+data2$MealBB[data2$Meal=='BB']<-1
+data2$MealBB[data2$Meal!='BB']<-0
+data2$MealFB[data2$Meal=='FB']<-1
+data2$MealFB[data2$Meal!='FB']<-0
+data2$MealHB[data2$Meal=='HB']<-1
+data2$MealHB[data2$Meal!='HB']<-0
+data2$MealSC[data2$Meal=='SC']<-1
+data2$MealSC[data2$Meal!='SC']<-0
+data2$Meal<-NULL
+data2$HotelResortHotel[data2$Hotel=='Resort Hotel']<-1
+data2$HotelResortHotel[data2$Hotel!='Resort Hotel']<-0
+data2$HotelCityHotel[data2$Hotel=='City Hotel']<-1
+data2$HotelCityHotel[data2$Hotel!='City Hotel']<-0
+data2$Hotel<-NULL
+data2$Distribution_ChannelCorporate[data2$Distribution_Channel=='Corporate']<-1
+data2$Distribution_ChannelCorporate[data2$Distribution_Channel!='Corporate']<-0
+data2$Distribution_ChannelDirect[data2$Distribution_Channel=='Direct']<-1
+data2$Distribution_ChannelDirect[data2$Distribution_Channel!='Direct']<-0
+data2$Distribution_ChannelGDS[data2$Distribution_Channel=='GDS']<-1
+data2$Distribution_ChannelGDS[data2$Distribution_Channel!='GDS']<-0
+data2$Distribution_ChannelTravelAgent[data2$Distribution_Channel=='Travel Agent']<-1
+data2$Distribution_ChannelTravelAgent[data2$Distribution_Channel!='Travel Agent']<-0
+data2$Distribution_Channel<-NULL
+data2$RoomA[data2$Room=='A']<-1
+data2$RoomA[data2$Room!='A']<-0
+data2$RoomB[data2$Room=='B']<-1
+data2$RoomB[data2$Room!='B']<-0
+data2$RoomC[data2$Room=='C']<-1
+data2$RoomC[data2$Room!='C']<-0
+data2$RoomD[data2$Room=='D']<-1
+data2$RoomD[data2$Room!='D']<-0
+data2$RoomE[data2$Room=='E']<-1
+data2$RoomE[data2$Room!='E']<-0
+data2$RoomF[data2$Room=='F']<-1
+data2$RoomF[data2$Room!='F']<-0
+data2$RoomG[data2$Room=='G']<-1
+data2$RoomG[data2$Room!='G']<-0
+data2$RoomH[data2$Room=='H']<-1
+data2$RoomH[data2$Room!='H']<-0
+data2$RoomI[data2$Room=='I']<-1
+data2$RoomI[data2$Room!='I']<-0
+data2$RoomK[data2$Room=='K']<-1
+data2$RoomK[data2$Room!='K']<-0
+data2$RoomL[data2$Room=='L']<-1
+data2$RoomL[data2$Room!='L']<-0
+data2$Room<-NULL
+set.seed(123)
+split2<-sample(seq(1,3),size = nrow(data2),replace = TRUE, prob = c(.7,.15,.15))
+training2<-data2[split2==1,]
+val2<-data2[split2==2,]
+testing2<-data2[split2==3,]
+```
+
+I decided to start my own model by including all possible regressors in the dataset to determine their relationship with to the average daily price for hotels.
+
+```{r}
+D1<-lm(Average_Daily_price~ .,data2)
+summary(D1)
+```
+
+The model has an adjusted R-squared value of 0.3358, meaning the model is able to represent 33.58% of the distribution of the average daily price. One issue presented by the results of this data was NA results for certain binary variable values, this is likely thanks to R’s automatic function to disregard data that creates perfect multicollinearity with other variables (dummy variable trap), but the values of some dummy variables, like ‘Room L’, only had one data observation and thus leaving the remaining dummy variables highly correlated. Almost all variables that came out without NA values were significant to the 0.1% significance level; exceptions include ‘Room F’/‘Room E’ at the 1% significance level, ‘Room C’/’Room D’/’Room I’/’Room K’ at the 5% significance level, and ‘Room A’/’Room B’ at the 10% significance level. These significance values may change when ‘NA’ variables are removed from the model. The following code was used to help validate this model by calculating the in-sample and out-of-sample errors; in-sample error was calculated using the same model as ‘D1’ with a partitioned version of the dataset labeled ‘training’ and then used to make predictions within a ‘testing’ set of equal partition to the training set:
+
+```{r}
+D1train<-lm(Average_Daily_price~ ., training2)
+summary(D1train)
+```
+
+```{r}
+predictions<-predict(D1train, val2)
+View(predictions)
+RMSE=sqrt(sum((predictions-testing$Average_Daily_price)^2)/(length(testing$Average_Daily_price)-31))
+RMSE
+```
+
+In-sample error was measured to be 37.99, out-of sample error was measured to be 40.85. The lack of difference in these values can validate that the model is not suffering from overfitting the data it is drawing from. In the next model, I remove dummy variables that resulted in NA values (thanks to R intentionally avoiding dummy variable traps) while also removing the variables representing ‘Room K’ and ‘Travel Agent Distribution Channel’ since the variables removed to avoid perfect multicollinearity for these dummy variable sets (‘Room L’) only had one observation. Since there is such little data represented in this dummy variable, they will be excluded for their significance and interpretation of Distribution Channel effects and Room effects will defer to comparisons against the additional dummy variables excluded from the model (“Room K” and “Travel Agent Distribution Channel”). The code to predict this model is as follows:
+
+```{r}
+D2<-lm(Average_Daily_price~.-HotelCityHotel-Distribution_ChannelTravelAgent-RoomL-RoomK,data2)
+summary(D2)
+```
+
+The adjusted R-squared for this model was 0.3358, a very slight increase from the previous model. Variables ‘Room A’ and ‘Room I’ were insignificant values within the regression, ‘Room D’ was significant at the 10% significance level, ‘Room B’ and ‘Room C’ were significant at the 1% significance level, and all other variables were significant at the 0.1% significance level. The same steps to model 1 were taken in the validation process in finding in-sample and out-of-sample errors:
+
+```{r}
+D2train<-lm(Average_Daily_price~.-HotelCityHotel-Distribution_ChannelTravelAgent-RoomL-RoomK,training2)
+summary(D2train)
+predictions2<-predict(D2train, val2)
+View(predictions2)
+RMSE=sqrt(sum((predictions2-val2$Average_Daily_price)^2)/(length(val2$Average_Daily_price)-28))
+RMSE
+```
+
+In-sample error was 37.99 and out-of-sample error was 38.08, same as the errors for model 1. In the next model, I’ll further remove variables lacking significance in the model, specifically ‘Room A’, ‘Room I’, and ‘Room D’, to try and improve fit.
+
+```{r}
+D3<-lm(Average_Daily_price~ .-HotelCityHotel-Distribution_ChannelTravelAgent-RoomL-RoomK-RoomA-RoomI-RoomD,data2)
+summary(D3)
+```
+
+Adjusted R-squared came out to 0.3287, a lower value in comparison to the previous two models, model fittness was not improved. All variables in this model came out significant at the 0.1% level. Validation was conducted the same way as with the other models:
+
+```{r}
+D3train<-lm(Average_Daily_price~.-HotelCityHotel-Distribution_ChannelTravelAgent-RoomL-RoomK-RoomA-RoomI-RoomD,training2)
+summary(D3train)
+predictions3<-predict(D3train, val2)
+View(predictions3)
+RMSE=sqrt(sum((predictions3-testing$Average_Daily_price)^2)/(length(testing$Average_Daily_price)-27))
+RMSE
+```
+
+In-sample error came out to 38.2, out-of-sample error came out to 41.02. Both error measurements have increased in comparison to previous models, again demonstrating that this model is less accurate in measuring average daily price than the other two models.
+From my comparisons I would go on with model 2, it better fits the model than model 3 and I believe it allows for better interpretation of dummy variables (Distribution Channel, Meal, Room, and  Hotel) than both model 1 and model 3. Putting the model through the origin by making the intercept of the model 0 was considered and measured, resulting in an adjusted R-squared value of 0.8870, significantly higher than the previous models suggested. However, I think that a 0 intercept is inaccurate when considering average daily price since the price will still be of a certain value even if no one is coming to stay at these rooms which (wouldn’t ever price the rooms for free). I think the intercept represents a minimum price point for these rooms and thus should be kept for its importance in understanding the average daily price; however, the drastic increase in fit should be considered further as a possibly improved model in comparison to my previously suggested models. 
+
+## Ben´s linear regression models
+
+  Taking a look at the Hotel Bookings cleaned data, I wanted to further investigate the change in Average Daily Price by first seeing the relative correlation between that variable and the rest of the dataset. 
+
+I noticed from my findings that the correlations between the “Children” and “Room” variables held the strongest with .35 and .32 respectively when compared with Average Daily Price. I decided from here to start building linear models in order to compare the “Children” variable to see if it  had the most impact on Average Daily Price. It had the largest correlation from my initial analysis and therefore, I thought I should focus on this variable in tangent with other factors to be later incorporated. The following was constructed:
+
+```{r}
+B1<-lm(Average_Daily_price~Children,data)
+summary(B1)
+```
+
+```{r}
+B2<-lm(Average_Daily_price~Week_Night_Stays,data)
+summary(B2)
+##R-Squared = .0023
+```
+
+```{r}
+B3<-lm(Average_Daily_price~Children+Week_Night_Stays,data)
+summary(B3)
+##R-squared = .1258
+```
+
+I began by analyzing the effect children had on average daily price and to my surprise, found that the significance level for children held a three star level of confidence with a p-value of less than 2.2e-16. This concluded for me that children had the ability to shift the price by up to $41 per child. With this in mind, I decided to further look into this inquiry by assessing the model’s r-squared compared to and with other variables in mind such as week night stays. Week night stays would be the number of days a guest would stay in a certain hotel and so I believed assessing whether or not the number of children a guest had in tangent with the number of nights that they stayed would indicate how much they spent on average for price.  This proved to show very little variation in r-squared values as the r-squared actually went in when both variables were put together. This did, however, make me curious as to what the out-of-sample was with these variables combined. The following was then constructed to see:
+
+```{r}
+Training <- subset(data, data$Week_Night_Stays!="5")
+Testing <- subset(data, data$Week_Night_Stays=="5")
+View(Testing)
+```
+
+```{r}
+B4<-lm(Average_Daily_price~Children+Week_Night_Stays,Training)
+summary(B4)
+```
+
+```{r}
+predictions <- predict(B4,Testing)
+View(predictions)
+sqrt(sum((predictions-Testing$Average_Daily_price)^2)/(length(Testing$Average_Daily_price)-3))
+```
+
+To clarify, I used a different interpretation of the training and testing data to see what the result would be for the average daily price per guest. I used a training and testing set where the number of nights a guest would stay would be 5 nights, a typically one week vacation in colloquial terms. I then looked to assess the model using the training data, noticing no significant change from my original M3 construction. This led me to believe the models did a good job reflecting out of sample results since the data was completely “new” and isolated. I further wanted to confirm this finding by analyzing the predictive power of my model by assessing the testing data. This ended up producing an out of sample error of 51.91. While the model represented a better reflection of the data in sample, my out of sample error happened to be much higher in comparison. However, I did notice as well that the difference between the two errors was about 9%, suggesting that I can still reduce the amount of out of sample error by reducing the complexity of my model or by simply changing the variables I used in my study. Below is what followed when I used the specified training and testing models for this change: 
+
+```{r}
+B5<-lm(Average_Daily_price~Children+Week_Night_Stays,training)
+summary(B5)
+```
+
+```{r}
+B6<-predict(B5,val)
+sqrt(sum((B6-val$Average_Daily_price)^2)/(length(val$Average_Daily_price)-3))
+```
+
+The resulting models above confirmed my guess that I could reduce the amount of error by simply changing the variables I used to conduct my training and testing samples. While my error in sample went up as a result, my out of sample error had climbed down, leaving me to conclude that this model would be my final predictive model.  Both the in and out-of-sample error are fairly close to each other which leaves me to believe making anymore adjustments would significantly change the strength of the model's predictive power. To confirm what the correlation means for my model, I finally produced confidence intervals to confirm the model’s results:
+
+```{r}
+confint(B3)
+confint.default(B3)
+point_conf_table<-cbind(B3$coefficients, confint(B3))
+point_conf_table
+exp(point_conf_table)
+#Having children increases the chances of daily spend by factor or 7 (6.97) 
+#How long one stays changes factor by 2.3
+```
+
+From my confidence intervals, I was able to conclude that the impact of having a child with you while checking into a hotel changes the average daily spend a guest has by a factor of almost 7, with the number of nights they stay having a factor of 2.3. This concluded to me, both from regression analysis and from testing/training, that children can significantly change the amount of money a guest spends on average for any given hotel. This impact also determines how many nights they are likely to stay in a hotel. It is more likely a guest stays less nights if they have children compared to if they didn’t.  
+
+# Part 4 Validation the regression models
+
+  Our validation process involves analyzing the goodness of fit of the regression by analyzing whether the regression residuals are random, and checking whether the model's predictive performance deteriorates substantially when applied to data that were not used in model estimation. This is all done with the calculation of the in-sample and out-of-sample error. 
+  
+## Almudena´s validation
+```{r}
+E_IN_M5<-(sum(M5$residuals^2)/(length(M5$residuals)-8))^(1/2)
+E_IN_M5
+Pred_M5<-predict(M5,val)
+E_OUT_M5<-(sum(Pred_M5-val$Average_Daily_price)^2/(length(val$Average_Daily_price)-8))^(1/2)
+E_OUT_M5
+```
+
+## Pablo´s validation
+```{r}
+E_IN_P3<-(sum(P3$residuals^2)/(length(P3$residuals)-5))^(1/2)
+E_IN_P3
+Pred_P3<-predict(P3,val)
+E_OUT_P3<-(sum(Pred_P3-val$Average_Daily_price)^2/(length(val$Average_Daily_price)-5))^(1/2)
+E_OUT_P3
+```
+
+## Andrea´s validation
+```{r}
+E_IN_A4<-(sum(A3$residuals^2)/(length(A3$residuals)-6))^(1/2)
+E_IN_A4
+Pred_A4<-predict(A3,val)
+E_OUT_A4<-(sum(Pred_A4-val$Average_Daily_price)^2/(length(val$Average_Daily_price)-6))^(1/2)
+E_OUT_A4
+```
+
+## Eleena´s validation
+```{r}
+E_IN_E4<-(sum(E4$residuals^2)/(length(E4$residuals)-6))^(1/2)
+E_IN_E4
+Pred_4<-predict(E4,val)
+E_OUT_E4<-(sum(Pred_4-val$Average_Daily_price)^2/(length(val$Average_Daily_price)-6))^(1/2)
+E_OUT_E4
+```
+
+## Daniel´s validation
+```{r}
+D3train<-lm(Average_Daily_price~.-HotelCityHotel-Distribution_ChannelTravelAgent-RoomL-RoomK-RoomA-RoomI-RoomD,training2)
+summary(D3train)
+predictionsD3<-predict(D3train, val2)
+RMSE=sqrt(sum((predictionsD3-val2$Average_Daily_price)^2)/(length(val2$Average_Daily_price)-27))
+RMSE
+```
+
+## Ben´s validation
+```{r}
+B5<-lm(Average_Daily_price~Children+Week_Night_Stays,training)
+summary(B5)
+```
+
+```{r}
+B6<-predict(B5,val)
+View(B6)
+sqrt(sum((B6-val$Average_Daily_price)^2)/(length(val$Average_Daily_price)-3))
+```
+
+  We used the root means square error method to predict each models out-of-sample error. Upon comparing the best model of the four group members we found Daniel´s regression model to be the best at predicting because, although its r-squared is not as high as other proposed models (32.67%), its out-of-sample error as well as in-sample error ar both 38.2, which is extremely low.
+From this selected model, we have decided to interpret some variables that we consider to be significant: 
+ - As for the number of children in a hotel booking, for every increasing child there is an associated increase in average daily price of $24.94 on average, holding all the other variables constant. 
+ - As for the number of adults in a hotel booking, for every increasing adult there is an associated increase in average daily price of $20.20 on average, holding all the other variables constant. 
+ - As for the number of special requests per reservation, when a special request is made there is an associated increase in daily price of $7.17 as opposed to no request. 
+ - For sales of rooms made through a Global Distribution Service, there is an associated increase in daily average price of $34.08, as opposed to using a travel agent, holding all the other variables constant. 
+ - For every parking space requested, there is an associated increase in the average daily price of $7.15, holding all other variables constant. 
+ - For every extra day elapsed between the moment the client made the reservation and his/her actual stay (lead time), average daily price decreases by $0.05, assuming all the other variables remain constant. 
+ - Assuming all variables remain constant, a one-unit increase in the number of week night stays entails an increase on the average daily rate of $1.1 
+ - Assuming all variables remain constant, if the guest is a repeated guest, the average daily price goes down by $11.62.
+ - As for the meal types, assuming the rest of the variables remain constant, if a client obtains a bed and breakfast package which only includes one meal, this would entail an increase of $6.5 in the average daily price. However, if a client obtains a full-board meal (3 meals per day) this implies an increase in the average daily price of 33.74 dollars, as opposed to half-board (breakfast and one other meal), which increases the daily price by 31.77 dollars. 
+ - Assuming all variables remain constant, if the type of hotel a client makes a reservation in is a resort, then the average daily price decreases by $26.11 as opposed to a city hotel.
+- Finally, for every change in the initial booking, the customer has to pay $1.15 extra every day. 
+ 
+ 
+# Part 5 Classification
+## Almudena´s classification model
+  Now I will build a model to predict the continuous probability an output belongs to a given class conditional on the signal, given the coefficients of the following inputs; Average Daily price, Parking spaces, Days in Waiting list and Weeknight stays. I will classify my observations to determine whether the guest is repeating or not, by using the CART machine learning model. In order to use this model Repeated_Guest must be a factor class, which I will compute below:
+
+```{r}
+training$Repeated_Guest<-factor(training$Repeated_Guest)
+testing$Repeated_Guest<-factor(testing$Repeated_Guest)
+```
+
+Now I will create my model, plot it to see the model complexity, and tune it to achieve the best possible outcome. By using CART programming, the computer determines which complexity parameter would be the optimal option to use determine the highest model accuracy. Since I am not sure what the optimal tune would be, I run the bestTune in order to find the optimal values and then create a confusion matrix.
+
+```{r}
+A_CART <- train(Repeated_Guest~Average_Daily_price+Parking_Spaces+Days_Waiting_List+Week_Night_Stays, data = training, method = "rpart",trControl = trainControl("cv", number = 10),tuneLength = 10)
+plot(A_CART)
+A_CART$bestTune
+confusionMatrix(predict(A_CART,testing),testing$Repeated_Guest)
+```
+
+Finally, I put the classification model through a confusion matrix so we can describe its performance. I wanted to find a model with the highest possible accuracy, which is the optimal parameter and after tuning the model I reach an accuracy of 97.31%, which is very good and therefore I am going to stick with this as my classsification model. Also, my out-of-sample error is very low (about 2.7%). Our 95% confidence interval ranges from 0.9706 and 0.9755, which contain 95% of our population.
+
+## Pablo´s classification model
+  Below is a logistic regression equation built to predict the continuous probability an output belongs to a given class conditional on the signal, given the coefficients of the following inputs: Lead Time, Weekend Nights, Booking Changes and Average Daily Price. The output being if the Guest is repeating a hotel booking or not is scalar (0 if he is not a repeated guest and 1 if he is a repeated guest). We put then the classification model through a confusion matrix so we can describe its performance.
+
+```{r}
+M_Log_Pablo<-glm(Repeated_Guest~Lead_Time+Weekend_Nights+Booking_Changes+Average_Daily_price,data=training,family="binomial")
+summary(M_Log_Pablo)
+exp(cbind(M_Log_Pablo$coefficients,confint(M_Log_Pablo)))
+confusionMatrix(table(predict(M_Log_Pablo, training, type="response") >= 0.25,training$Repeated_Guest == 1))
+````
+
+The model predicts whether or not the guest is a repeated guest correctly 97.21% of the time but the specificity (times the model does not predict that it is a repeated guest when it really is) is too low, just 0.3%. Therefore, let´s set the threshold on 0.15 instead and see if the specificity goes up.
+
+```{r}
+confusionMatrix(table(predict(M_Log_Pablo, training, type="response") >= 0.10,training$Repeated_Guest == 1))
+````
+
+Now, the accuracy has decreased to 93.74% but I consider it is acceptable since our specificity has increased to 0.3492, therefore I am going to stick with this as my classification model.
+
+## Andrea´s classification model
+  For my classification model I will be using a CART machine learning model in order to predict the probability of a hotel being a city hotel or a resort hotel, given the coefficients of the following inputs:average daily price, lead time, number of adults, number of children, and parking spaces. The scalar output is the type of hotel, that can be 0 if the hotel is a resort or 1 if the hotel is a city hotel. In order to describe its performance, we will be putting a classification model through a confusion matrix. 
+
+```{r}
+A2_CART<-train(Hotel~Average_Daily_price+Lead_Time+Adults+Children+Parking_Spaces, data = training, method = "rpart", trControl=trainControl("cv", number=10), tuneLength=10)
+plot(A2_CART)
+A2_CART$bestTune
+confusionMatrix(predict(A2_CART, testing), testing$Hotel)
+````
+
+The model predicts whether or not the hotel is a resort or a city hotel 81.94% of the time, which is pretty good. The specificity is 0.6068, which means it accurately predicts the true cases 61% of the time. 
+
+## Eleena´s classification model
+```{r}
+M_Log_Elena<-glm(Repeated_Guest~Lead_Time+Weekend_Nights+Adults+Parking_Spaces+Average_Daily_price,data=training,family="binomial")
+summary(M_Log_Elena)
+exp(cbind(M_Log_Elena$coefficients,confint(M_Log_Elena)))
+confusionMatrix(table(predict(M_Log_Elena, testing, type="response") >= 0.25,testing$Repeated_Guest == 1))
+````
+
+In the logistic model, the results demonstrate an accuracy of the regression is 97.1%, which implies that the model reflects 97.1% of the variation from the independent variables when the guest is repeated or not.
+
+## Daniel´s classification model
+  For my classification model, I decided to focus on evaluating the probability if a person staying at one of the hotels was, or wasn’t, a repeated guest. Through this model, I would hope to find some strong indicators/influencers of the likelihood a patron being a repeated guest as potential points management could focus on, in marketing or product, to influence patrons to become repeated guests, or “regulars”. I began building my model by using all variables available in the dataset, I removed variables for residents in Room K, use of a Travel Agent for the Distribution Channel , and Meal SC to prevent high multicollinearity between categorical variables in the Room, Distribution Channel, and Meal variable groups. The code for this initial model is as follows:
+
+```{r}
+D1.1<- glm(Repeated_Guest~.-RoomK-Distribution_ChannelTravelAgent-MealSC, data = data2, family = 'binomial')
+summary(D1.1)
+````
+
+From this initial model, I found that most variables were highly significant to the 0.1% to 1% significance levels, and a majority of the Room variables, and some Meal Variables, came up as insignificant. The AIC value of this model came out to 21719.  I then tested the validity of my data by creating testing and training subsets and running the model using a confusion matrix, running the model off of the training data (which consisted of 70% of the data on Repeated Guests) and compared this model’s accuracy to the testing data (which consisted of the remaining 30% of data on Repeated Guests not used in the training data). The coding for the creation of these testing/training sets and confusion matrix to test for in-sample error (through training data) and out-of-sample error (through testing data) is as follows:
+
+```{r}
+set.seed(123)
+inTrain<-createDataPartition(y=data2$Repeated_Guest, p=.70, list=FALSE)
+Training.1<-data2[inTrain,]#stores rows in training set
+Testing.1<-data2[-inTrain,]
+M_LOG.1<-glm(Repeated_Guest~.-RoomK-Distribution_ChannelTravelAgent-MealSC, data = Training.1, family='binomial')
+summary(M_LOG.1)
+confusionMatrix(table(predict(M_LOG.1, Training.1, type="response") >= 0.25, Training.1$Repeated_Guest == 1))
+confusionMatrix(table(predict(M_LOG.1, Testing.1, type="response") >= 0.25, Testing.1$Repeated_Guest == 1))
+````
+
+Using a threshold value of the probability of being a repeated guest being 25%, I found that overall accuracy for this model was pretty high, with low in-sample and out-of-sample error (E_in= 0.0338 and E_out=0.034). The model sensitivity, or ability to predict a guest would not be a repeated guest, was very high with the model correctly predicting non-repeated guests98.25% of the time. Model specificity, or ability to predict a guest would be a repeated guest, was much lower but fairly accurate, being able to correctly predict repeated guests 38.49% of the time. These are fair values for my out-of-sample and in-sample errors but I wanted to try to make the model more accurate, so I removed aforementioned regressors that resulted in insignificant predictors for a Repeated Guest, this model is demonstrated in the following code:
+
+```{r}
+M1.2<- glm(Repeated_Guest~.-RoomK-Distribution_ChannelTravelAgent-MealSC-Booking_Changes-RoomA-RoomB-RoomC-RoomD-RoomE-RoomF-RoomG-RoomH-MealFB-Distribution_ChannelGDS-HotelCityHotel, data = data2, family = 'binomial')
+summary(M1.2)
+````
+
+All variables in this model resulted in being significant to at least the 5% level. This model resulted in a slightly lower IAC value than in the previous model, 21715. This was only slightly better in fit than the model previous so I wanted to make sure out-of-sample and in-sample errors were improved at all. The following code ran the model through training data and then against testing data in a confusion matrix to evaluate in-sample and out-of-sample error respectively:
+
+```{r}
+M_LOG.2<- glm(Repeated_Guest~.-RoomK-Distribution_ChannelTravelAgent-MealSC-Booking_Changes-RoomA-RoomB-RoomC-RoomD-RoomE-RoomF-RoomG-RoomH-MealFB-Distribution_ChannelGDS-HotelCityHotel, data=Training.1, family='binomial')
+summary(M_LOG.2)
+confusionMatrix(table(predict(M_LOG.2, Training.1, type="response") >= 0.25, Training.1$Repeated_Guest == 1))
+confusionMatrix(table(predict(M_LOG.2, Testing.1, type="response") >= 0.25, Testing.1$Repeated_Guest == 1))
+````
+
+Using the same threshold probability value of 25%, I found the error metrics to be slightly better than in the previous model, with an in-sample error of 0.0337 and an out-of-sample error of 0.0339. Though only slightly better, I will be using model 2 to interpret regressor impacts on the repeated guest variable. I evaluated confidence intervals and point values, then converted them to odds-ratios for easier interpretation through the following code:
+
+```{r}
+point_conf_table<-cbind(M1.2$coefficients, confint(M1.2))#look at confidence interval next to point estimates
+point_conf_table
+exp(point_conf_table)
+````
+
+## Ben´s classification model
+```{r}
+M_LOG_BEN<-glm(Repeated_Guest~Children+Week_Night_Stays+Average_Daily_price, data = training, family = binomial)
+summary(M_LOG_BEN)
+exp(cbind(M_LOG_BEN$coefficients, confint(M_LOG_BEN)))
+confusionMatrix(table(predict(M_LOG_BEN, training, type="response") >= 0.25,training$Repeated_Guest== 1))
+confusionMatrix(table(predict(M_LOG_BEN, testing, type="response") >= 0.25,testing$Repeated_Guest == 1))
+````
+
+  From my classification model, I found that the regression reflects up to 97.16% of the variation between children, week night stays and the average daily price if the guest happens to be repeated or not. I would not say this is the strongest reflection of the model because of how few variables were used to create the variation, but it does provide enough explanation to predict somewhat well with only a couple independent variables. Interpreting the model, given if a guest had a specified amount of children, week night stays and an average daily price, 97.16% of the time the model would be able to correctly confirm this. Looking at an example, if a guest found that their average daily price was too high when adding on children and the number of stays they have at a hotel, it would be notable to see them not come back and make a booking at a hotel, seen by the accuracy of 97.16%. There is some room for error in this calculation, however, but this is based on the assumption too few variables are explaining possible phenomenon.
+
+# Part 6 Validating Classification Models
+  Our classification models used different clasification methods such as logistic regression and CART programming to accurately predict our dummy variables (whether a guest is repeated or not and whether the hotel is a resort or a city hotel).
+  When validating our classification models we looked to see which model predicted the best out-of-sample by comparing accuracy from the output of the confusion matrix, and found Almudena´s model to be the best as it accurately predicted whether or not a guest was repeated or not 97.31% of the time. Sensitivity is also pretty high (0.999), meaning that Almudena´s model is able to predict true positives of each variable 99% of the time. 
+
+# Part 7 Conclusion
+  The previous 6 parts tested our skills in building and testing predictive models through development of the analytics pipeline from beginning to end. We learned how to collect, clean and partition the data for use of building regression models for predicting the average daily price of hotel bookings and classification models to classify whether or not the price is affected if a guest is a repeated guest or not based on the tidy data. Through this process we were able to compare variable coefficients to explore how increasing input variables affected our output variable and evaluate adjusted R-Squared to observe the variation of the output variable based on the given input variables. Through this process we were able to see how complex hypotheses might not generalize well out-of-sample, this taught us how to use regularization to restrain the complexity of the hypothesis sets in order to build a model that predicts better out-of-sample. We learned how to document this process using R Markdown so that others may follow our code, understand our thought process and evaluate our models during future testing.
